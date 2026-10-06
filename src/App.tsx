@@ -111,93 +111,16 @@ export default function App() {
     localStorage.setItem('flux_panel_right_width', '340');
   };
 
-  // Web Worker State
-  const workerRef = useRef<Worker | null>(null);
-  const [workerStatus, setWorkerStatus] = useState<string>('Initializing Worker...');
-  const [isWorkerReady, setIsWorkerReady] = useState<boolean>(false);
+  // System State
+  const [workerStatus, setWorkerStatus] = useState<string>('Sáºµn sÃ ng táº£i video');
+  const [isWorkerReady, setIsWorkerReady] = useState<boolean>(true);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const lastRequestedUrlRef = useRef<string>('');
-
-  useEffect(() => {
-    // Initialize worker
-    const worker = new Worker(new URL('./workers/ytdlp.worker.ts', import.meta.url), { type: 'module' });
-    workerRef.current = worker;
-
-    worker.onmessage = async (e) => {
-      const { type, message, data, error } = e.data;
-      if (type === 'STATUS') {
-        setWorkerStatus(message);
-      } else if (type === 'READY') {
-        setIsWorkerReady(true);
-        setWorkerStatus('PYODIDE CORE READY');
-      } else if (type === 'SUCCESS') {
-        try {
-           setWorkerStatus('Đang tải dữ liệu Blob qua Proxy...');
-           const directUrl = data.url;
-           const proxyUrl = `/api/proxy?url=${encodeURIComponent(directUrl)}`;
-           const res = await fetch(proxyUrl);
-           if (!res.ok) throw new Error('Proxy fetch failed');
-           const blob = await res.blob();
-           const blobUrl = URL.createObjectURL(blob);
-           setSourceVideoUrl(blobUrl);
-           setWorkerStatus('Tải video thành công');
-        } catch (err) {
-           console.error("Blob fetch error:", err);
-           alert("Không thể tải luồng video qua CORS Proxy. Vui lòng thử lại.");
-           setWorkerStatus('Lỗi tải video');
-        } finally {
-           setIsExtracting(false);
-        }
-      } else if (type === 'ERROR') {
-        console.warn("Worker Error, attempting API fallback:", error);
-        setWorkerStatus('Worker lỗi, chuyển sang API fallback...');
-        
-        try {
-           const fallbackUrl = lastRequestedUrlRef.current;
-           if (!fallbackUrl) throw new Error("No URL to fallback to");
-           
-           if (!fallbackUrl.includes('tiktok.com') && !fallbackUrl.includes('douyin.com')) {
-               throw new Error("Fallback only supported for TikTok/Douyin");
-           }
-           
-           const tikwmRes = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(fallbackUrl)}&hd=1`);
-           if (!tikwmRes.ok) throw new Error("TikWM API failed");
-           const tikwmData = await tikwmRes.json();
-           
-           if (tikwmData.data && tikwmData.data.play) {
-               setWorkerStatus('Lấy link thành công. Đang tải video...');
-               const directUrl = tikwmData.data.play;
-               // Route the video download through our proxy to avoid CORS
-               const proxyUrl = `/api/proxy?url=${encodeURIComponent(directUrl)}`;
-               const res = await fetch(proxyUrl);
-               if (!res.ok) throw new Error('Proxy fetch failed');
-               const blob = await res.blob();
-               const blobUrl = URL.createObjectURL(blob);
-               setSourceVideoUrl(blobUrl);
-               setDirectVideoUrl(directUrl);
-               setWorkerStatus('Tải video thành công (Fallback)');
-           } else {
-               throw new Error("No URL in TikWM response");
-           }
-        } catch (fallbackErr: any) {
-           console.error("Fallback error:", fallbackErr);
-           setWorkerStatus(`Lỗi bóc tách: ${error}`);
-           alert(`Lỗi bóc tách: ${error}. Fallback cũng thất bại.`);
-        } finally {
-           setIsExtracting(false);
-        }
-      }
-    };
-
-    worker.postMessage({ type: 'INIT' });
-
-    return () => worker.terminate();
-  }, []);
 
   const handleDownloadSource = async (url: string) => {
     lastRequestedUrlRef.current = url;
     setIsExtracting(true);
-    setWorkerStatus('Đang gửi yêu cầu tải video đến Server (Bypass CORS)...');
+    setWorkerStatus('Äang gá»­i yÃªu cáº§u táº£i video Ä‘áº¿n Server (Bypass CORS)...');
     
     try {
         // First get the direct URL so we can store it for cutting later
@@ -221,18 +144,18 @@ export default function App() {
         
         if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || `Server lỗi ${res.status}`);
+            throw new Error(errData.error || `Server lá»—i ${res.status}`);
         }
         
-        setWorkerStatus('Đang nạp luồng video vào bộ nhớ...');
+        setWorkerStatus('Äang náº¡p luá»“ng video vÃ o bá»™ nhá»›...');
         const blob = await res.blob();
         const blobUrl = URL.createObjectURL(blob);
         setSourceVideoUrl(blobUrl);
-        setWorkerStatus('Tải video thành công! Server FFmpeg đã sẵn sàng cắt.');
+        setWorkerStatus('Táº£i video thÃ nh cÃ´ng! Server FFmpeg Ä‘Ã£ sáºµn sÃ ng cáº¯t.');
     } catch (err: any) {
-        console.error("Lỗi tải video:", err);
-        setWorkerStatus(`Lỗi: ${err.message}`);
-        alert(`Không thể tải video: ${err.message}`);
+        console.error("Lá»—i táº£i video:", err);
+        setWorkerStatus(`Lá»—i: ${err.message}`);
+        alert(`KhÃ´ng thá»ƒ táº£i video: ${err.message}`);
     } finally {
         setIsExtracting(false);
     }
@@ -241,7 +164,7 @@ export default function App() {
   const handleAnalyzeAI = async () => {
     if (!sourceVideoUrl) return;
     setIsProcessingAI(true);
-    setAiProcessingMessage('Trích xuất Audio (Web API)...');
+    setAiProcessingMessage('TrÃ­ch xuáº¥t Audio (Web API)...');
     try {
       const responseAudio = await fetch(sourceVideoUrl);
       const arrayBuffer = await responseAudio.arrayBuffer();
@@ -298,14 +221,14 @@ export default function App() {
       };
 
       const base64Data = bufferToBase64(wavBuffer);
-      setAiProcessingMessage('Đang phân tích (Hệ thống AI Router Đang Auto Fallback)...');
+      setAiProcessingMessage('Äang phÃ¢n tÃ­ch (Há»‡ thá»‘ng AI Router Äang Auto Fallback)...');
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
            mimeType: 'audio/wav',
            data: base64Data,
-           prompt: "Phân tích âm thanh, trả về ĐÚNG ĐỊNH DẠNG JSON, KHÔNG CÓ MARKDOWN (không dùng ```json). Bắt buộc chứa 2 trường:\\n- 'transcript': mảng các đối tượng gồm 'time' (định dạng 'MM:SS'), 'seconds' (số giây, VD: 0, 10, 20), và 'text' (nội dung).\\nYÊU CẦU: Viết lại TOÀN BỘ thoại của video chuẩn xác nhất đầy đủ 100%. Phân chia thoại thành TỪNG ĐOẠN DÀI KHOẢNG 10 GIÂY (00:00, 00:10, 00:20...). Ở mỗi đoạn thêm dấu câu ngắt nghỉ tự nhiên nhất, đúng ngữ pháp. KHÔNG ĐƯỢC TÓM TẮT.\\n- 'summary': tóm tắt chung." 
+           prompt: "PhÃ¢n tÃ­ch Ã¢m thanh, tráº£ vá» ÄÃšNG Äá»ŠNH Dáº NG JSON, KHÃ”NG CÃ“ MARKDOWN (khÃ´ng dÃ¹ng ```json). Báº¯t buá»™c chá»©a 2 trÆ°á»ng:\\n- 'transcript': máº£ng cÃ¡c Ä‘á»‘i tÆ°á»£ng gá»“m 'time' (Ä‘á»‹nh dáº¡ng 'MM:SS'), 'seconds' (sá»‘ giÃ¢y, VD: 0, 10, 20), vÃ  'text' (ná»™i dung).\\nYÃŠU Cáº¦U: Viáº¿t láº¡i TOÃ€N Bá»˜ thoáº¡i cá»§a video chuáº©n xÃ¡c nháº¥t Ä‘áº§y Ä‘á»§ 100%. PhÃ¢n chia thoáº¡i thÃ nh Tá»ªNG ÄOáº N DÃ€I KHOáº¢NG 10 GIÃ‚Y (00:00, 00:10, 00:20...). á»ž má»—i Ä‘oáº¡n thÃªm dáº¥u cÃ¢u ngáº¯t nghá»‰ tá»± nhiÃªn nháº¥t, Ä‘Ãºng ngá»¯ phÃ¡p. KHÃ”NG ÄÆ¯á»¢C TÃ“M Táº®T.\\n- 'summary': tÃ³m táº¯t chung." 
         })
       });
       
@@ -317,7 +240,7 @@ export default function App() {
       setAiAnalysis(resultData);
     } catch (error) {
       console.error("AI Analysis error:", error);
-      alert("Có lỗi khi phân tích Audio hoặc gọi Gemini API.");
+      alert("CÃ³ lá»—i khi phÃ¢n tÃ­ch Audio hoáº·c gá»i Gemini API.");
     } finally {
       setIsProcessingAI(false);
     }
@@ -368,10 +291,10 @@ export default function App() {
           <button
             onClick={handleResetLayout}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-colors text-xs cursor-pointer shadow-sm"
-            title="Đặt lại kích thước các cột về mặc định (25% / 45% / 30%)"
+            title="Äáº·t láº¡i kÃ­ch thÆ°á»›c cÃ¡c cá»™t vá» máº·c Ä‘á»‹nh (25% / 45% / 30%)"
           >
             <RotateCcw className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Reset Cột</span>
+            <span>Reset Cá»™t</span>
           </button>
 
           <div className="h-4 w-[1px] bg-white/10" />
@@ -400,13 +323,13 @@ export default function App() {
           <div 
             onClick={() => setIsLeftCollapsed(false)}
             className="w-11 shrink-0 bg-[#0F1219] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer hover:bg-white/5 transition-colors group select-none"
-            title="Nhấp để mở rộng cột Nguồn Video & Clips"
+            title="Nháº¥p Ä‘á»ƒ má»Ÿ rá»™ng cá»™t Nguá»“n Video & Clips"
           >
             <button className="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors mb-4">
               <ChevronRight className="w-4 h-4" />
             </button>
             <div className="writing-vertical text-[11px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-indigo-300 rotate-180 flex items-center gap-2">
-              <span>Nguồn & Clips</span>
+              <span>Nguá»“n & Clips</span>
               {clips.length > 0 && (
                 <span className="bg-indigo-500 text-white rounded-full px-1.5 py-0.2 text-[9px] font-mono">
                   {clips.length}
@@ -443,7 +366,7 @@ export default function App() {
           isCollapsed={isLeftCollapsed}
           onToggleCollapse={() => setIsLeftCollapsed(!isLeftCollapsed)}
           collapseDirection="left"
-          panelName="Cột Nguồn Video"
+          panelName="Cá»™t Nguá»“n Video"
           currentWidth={isLeftCollapsed ? 42 : leftWidth}
         />
 
@@ -472,7 +395,7 @@ export default function App() {
           isCollapsed={isRightCollapsed}
           onToggleCollapse={() => setIsRightCollapsed(!isRightCollapsed)}
           collapseDirection="right"
-          panelName="Cột Transcript / AI"
+          panelName="Cá»™t Transcript / AI"
           currentWidth={isRightCollapsed ? 42 : rightWidth}
         />
 
@@ -481,7 +404,7 @@ export default function App() {
           <div 
             onClick={() => setIsRightCollapsed(false)}
             className="w-11 shrink-0 bg-[#0F1219] border-l border-white/10 flex flex-col items-center py-4 cursor-pointer hover:bg-white/5 transition-colors group select-none"
-            title="Nhấp để mở rộng cột Transcript & AI Summary"
+            title="Nháº¥p Ä‘á»ƒ má»Ÿ rá»™ng cá»™t Transcript & AI Summary"
           >
             <button className="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors mb-4">
               <ChevronLeft className="w-4 h-4" />
@@ -516,10 +439,10 @@ export default function App() {
         <div className="flex items-center gap-3">
           <span>ENV: PRODUCTION_READY</span>
           <span className="text-slate-700">|</span>
-          <span className="text-indigo-400/80">Kéo các thanh giữa các cột để tùy chỉnh chiều rộng</span>
+          <span className="text-indigo-400/80">KÃ©o cÃ¡c thanh giá»¯a cÃ¡c cá»™t Ä‘á»ƒ tÃ¹y chá»‰nh chiá»u rá»™ng</span>
         </div>
         <div className="flex items-center gap-3">
-          <span>KÍCH THƯỚC: [{isLeftCollapsed ? 'Thu gọn' : `${leftWidth}px`} | Tự động | {isRightCollapsed ? 'Thu gọn' : `${rightWidth}px`}]</span>
+          <span>KÃCH THÆ¯á»šC: [{isLeftCollapsed ? 'Thu gá»n' : `${leftWidth}px`} | Tá»± Ä‘á»™ng | {isRightCollapsed ? 'Thu gá»n' : `${rightWidth}px`}]</span>
           <span className="text-slate-700">|</span>
           <div>&copy; 2024 FLUX STUDIO v1.0.5</div>
         </div>
@@ -527,4 +450,5 @@ export default function App() {
     </div>
   );
 }
+
 
