@@ -29,8 +29,7 @@ function getAI() {
 
 const upload = multer({ dest: '/tmp/uploads/' });
 
-async function startServer() {
-  const app = express();
+const app = express();
   const PORT = 3000;
 
   // Increase payload limit for base64 audio/video
@@ -802,23 +801,21 @@ Hãy viết lại một kịch bản thoại mới sáng tạo, cuốn hút và 
   });
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
+  if (process.env.NODE_ENV !== "production" && process.env.VERCEL !== "1") {
+    createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
+    }).then(vite => {
+        app.use(vite.middlewares);
+        app.listen(3000, "0.0.0.0", () => console.log("Server running on http://localhost:3000"));
     });
-    app.use(vite.middlewares);
-  } else {
+  } else if (process.env.VERCEL !== "1") {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
+    app.listen(3000, "0.0.0.0", () => console.log("Server running on http://localhost:3000"));
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
-
-startServer();
+export default app;
