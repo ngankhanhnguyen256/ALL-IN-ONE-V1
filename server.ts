@@ -131,7 +131,75 @@ app.post("/api/analyze-stream", async (req, res) => {
   }
 });
 
+app.post("/api/get-tiktok-url", async (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url) return res.status(400).json({ error: "Missing url" });
+        const tikwmRes = await fetch(https://www.tikwm.com/api/?url= + encodeURIComponent(url) + &hd=1);
+        if (!tikwmRes.ok) throw new Error("TikWM API request failed");
+        const tikwmData = await tikwmRes.json();
+        const directUrl = tikwmData?.data?.play;
+        if (!directUrl) throw new Error("Không thể trích xuất link");
+        res.json({ directUrl });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message || "Lỗi lấy link" });
+    }
+});
 
+app.post("/api/download-tiktok", async (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url) return res.status(400).json({ error: "Missing url" });
+        const tikwmRes = await fetch(https://www.tikwm.com/api/?url= + encodeURIComponent(url) + &hd=1);
+        if (!tikwmRes.ok) throw new Error("TikWM API request failed");
+        const tikwmData = await tikwmRes.json();
+        const directUrl = tikwmData?.data?.play;
+        if (!directUrl) throw new Error("Không thể trích xuất link");
+        const videoRes = await fetch(directUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Referer': 'https://www.tiktok.com/',
+                'Accept': 'video/*'
+            }
+        });
+        if (!videoRes.ok) throw new Error(Lỗi tải video);
+        res.setHeader("Content-Type", "video/mp4");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        const { Readable } = await import("stream");
+        if (videoRes.body) {
+            Readable.fromWeb(videoRes.body as any).pipe(res);
+        } else {
+            res.status(500).json({ error: "Video rỗng" });
+        }
+    } catch (e: any) {
+        res.status(500).json({ error: e.message || "Lỗi tải video" });
+    }
+});
+
+app.all("/api/proxy", async (req, res) => {
+    try {
+      const targetUrl = req.query.url as string;
+      if (!targetUrl) return res.status(400).send("No url provided");
+      const headers = new Headers();
+      headers.set('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1');
+      headers.set('Referer', 'https://www.tiktok.com/');
+      headers.set('Accept', '*/*');
+      const response = await fetch(targetUrl, {
+        method: req.method,
+        headers: headers,
+      });
+      res.status(response.status);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      if (response.body) {
+         const { Readable } = await import('stream');
+         Readable.fromWeb(response.body as any).pipe(res);
+      } else {
+         res.end();
+      }
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 export default app;
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
