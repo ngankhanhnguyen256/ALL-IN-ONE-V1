@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      const suppressError = (e) => {
+        const msg = e.message || (e.reason && e.reason.message) || "";
+        if (typeof msg === 'string' && msg.includes("Cannot set property fetch")) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      };
+      window.addEventListener("error", suppressError, true);
+      window.addEventListener("unhandledrejection", suppressError, true);
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>All-in-One Video Studio</title>
+    <meta name="description" content="Video Studio Dashboard for downloading, trimming, and AI summarizing videos." />
+    <meta property="og:title" content="All-in-One Video Studio" />
+    <meta property="og:description" content="Video Studio Dashboard for downloading, trimming, and AI summarizing videos." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

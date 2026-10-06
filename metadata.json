@@ -1,0 +1,6 @@
+{
+  "name": "All-in-One Video Studio",
+  "description": "Video Studio Dashboard for downloading, trimming, and AI summarizing videos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
