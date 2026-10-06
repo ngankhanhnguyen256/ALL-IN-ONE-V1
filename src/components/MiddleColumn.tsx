@@ -6,11 +6,13 @@ import { cn } from '../lib/utils';
 interface MiddleColumnProps {
   sourceVideoUrl: string | null;
   directVideoUrl?: string | null;
+  localFile?: File | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   clipRanges: ClipRange[];
   setClipRanges: React.Dispatch<React.SetStateAction<ClipRange[]>>;
   onCutComplete: (clips: VideoClip[]) => void;
   isExtracting?: boolean;
+  statusMessage?: string;
 }
 
 interface ClipRowProps {
@@ -110,17 +112,27 @@ const ClipRow: React.FC<ClipRowProps> = ({
 export function MiddleColumn({
   sourceVideoUrl,
   directVideoUrl,
+  localFile,
   videoRef,
   clipRanges,
   setClipRanges,
   onCutComplete,
-  isExtracting
+  isExtracting,
+  statusMessage
 }: MiddleColumnProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isProcessingCut, setIsProcessingCut] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [cutStatus, setCutStatus] = useState<string>('');
+  const [cutError, setCutError] = useState<string | null>(null);
   const messageRef = useRef<HTMLParagraphElement | null>(null);
+
+  useEffect(() => {
+    setVideoError(null);
+    setCutError(null);
+  }, [sourceVideoUrl]);
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
@@ -131,6 +143,7 @@ export function MiddleColumn({
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration);
+      setVideoError(null);
     }
   };
 
@@ -139,7 +152,9 @@ export function MiddleColumn({
       if (isPlaying) {
         videoRef.current.pause();
       } else {
-        videoRef.current.play();
+        videoRef.current.play().catch((err) => {
+          console.warn("Video play interrupted:", err);
+        });
       }
       setIsPlaying(!isPlaying);
     }
@@ -178,81 +193,58 @@ export function MiddleColumn({
   const executeCut = async () => {
     if (!sourceVideoUrl || clipRanges.length === 0) return;
     setIsProcessingCut(true);
+    setCutError(null);
+    setCutStatus(`Đang chuẩn bị cắt ${clipRanges.length} đoạn video...`);
 
     try {
-        const newClips: VideoClip[] = [];
+      let fileIdToUse: string | undefined = undefined;
 
-        // If we have a directVideoUrl, use the URL-based endpoint to avoid 32MB upload limits
-        if (directVideoUrl) {
-             for (let i = 0; i < clipRanges.length; i++) {
-                const range = clipRanges[i];
-                
-                const cutRes = await fetch('/api/cut-video-url', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        videoUrl: directVideoUrl,
-                        startTime: range.startTime,
-                        endTime: range.endTime
-                    })
-                });
-
-                if (!cutRes.ok) {
-                    const err = await cutRes.json().catch(() => ({}));
-                    throw new Error(err.error || `Server lỗi ${cutRes.status}`);
-                }
-
-                const cutBlob = await cutRes.blob();
-                const url = URL.createObjectURL(cutBlob);
-                
-                newClips.push({
-                    id: Math.random().toString(36).substr(2, 9),
-                    url,
-                    originalStart: range.startTime,
-                    originalEnd: range.endTime,
-                });
-            }
-        } else {
-            // Fallback for uploaded blob
-            const resBlob = await fetch(sourceVideoUrl);
-            const videoBlob = await resBlob.blob();
-
-            for (let i = 0; i < clipRanges.length; i++) {
-                const range = clipRanges[i];
-                
-                const formData = new FormData();
-                formData.append('video', videoBlob, 'input.mp4');
-                formData.append('startTime', range.startTime.toString());
-                formData.append('endTime', range.endTime.toString());
-
-                const cutRes = await fetch('/api/cut-video', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (!cutRes.ok) {
-                    const err = await cutRes.json().catch(() => ({}));
-                    throw new Error(err.error || `Server lỗi ${cutRes.status}`);
-                }
-
-                const cutBlob = await cutRes.blob();
-                const url = URL.createObjectURL(cutBlob);
-                
-                newClips.push({
-                    id: Math.random().toString(36).substr(2, 9),
-                    url,
-                    originalStart: range.startTime,
-                    originalEnd: range.endTime,
-                });
-            }
+      // If local file was uploaded, upload once to server
+      if (localFile) {
+        setCutStatus('Đang nạp video nguồn lên máy chủ...');
+        const formData = new FormData();
+        formData.append('video', localFile);
+        const upRes = await fetch('/api/upload-video', {
+          method: 'POST',
+          body: formData
+        });
+        if (!upRes.ok) {
+          const errData = await upRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'Không thể tải file lên máy chủ.');
         }
+        const upData = await upRes.json();
+        fileIdToUse = upData.fileId;
+      }
 
-        onCutComplete(newClips);
+      setCutStatus(`Đang cắt ${clipRanges.length} clips bằng FFmpeg siêu tốc...`);
+
+      const res = await fetch('/api/cut-video-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoUrl: directVideoUrl || (sourceVideoUrl.startsWith('http') && !sourceVideoUrl.startsWith('blob:') ? sourceVideoUrl : undefined),
+          fileId: fileIdToUse,
+          ranges: clipRanges
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server cắt video trả về lỗi HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (!data.clips || data.clips.length === 0) {
+        throw new Error('Máy chủ không trả về đoạn clip nào.');
+      }
+
+      setCutStatus(`Đã cắt thành công ${data.clips.length} đoạn!`);
+      onCutComplete(data.clips);
     } catch (error: any) {
-        console.error("Error during video cut:", error);
-        alert(`Lỗi khi cắt video: ${error.message || "Đã xảy ra lỗi"}`);
+      console.error("Error during video cut:", error);
+      setCutError(error.message || "Đã xảy ra lỗi khi cắt video.");
     } finally {
-        setIsProcessingCut(false);
+      setIsProcessingCut(false);
     }
   };
 
@@ -263,7 +255,7 @@ export function MiddleColumn({
         {sourceVideoUrl && (
           <div className="absolute top-4 left-4 bg-black/40 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-mono border border-white/10 z-20">PREVIEW MODE</div>
         )}
-        {sourceVideoUrl ? (
+        {sourceVideoUrl && !videoError ? (
           <video
             ref={videoRef}
             src={sourceVideoUrl}
@@ -272,17 +264,37 @@ export function MiddleColumn({
             onLoadedMetadata={handleLoadedMetadata}
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
+            onError={(e) => {
+              console.error("Video player load error:", e);
+              setVideoError("Không thể phát luồng video trực tiếp. Bạn có thể chọn tab 'Tải Video Lên' để tải file MP4.");
+            }}
             controls
+            playsInline
           />
         ) : isExtracting ? (
-          <div className="w-full h-full flex items-center justify-center text-indigo-400 flex-col gap-3">
-             <Loader2 className="w-10 h-10 animate-spin" />
-             <p className="text-sm font-medium">Extracting video source...</p>
+          <div className="w-full h-full flex items-center justify-center text-indigo-400 flex-col gap-3 p-6 text-center">
+             <div className="relative">
+               <Loader2 className="w-12 h-12 animate-spin text-indigo-500" />
+               <div className="absolute inset-0 rounded-full blur-sm bg-indigo-500/20 animate-pulse"></div>
+             </div>
+             <div className="space-y-1">
+               <p className="text-sm font-semibold text-slate-200">Đang nạp video nguồn...</p>
+               <p className="text-xs font-mono text-indigo-400 max-w-sm">{statusMessage || 'Đang bóc tách luồng dữ liệu...'}</p>
+             </div>
+          </div>
+        ) : videoError ? (
+          <div className="w-full h-full flex items-center justify-center text-rose-400 flex-col gap-3 p-6 text-center">
+             <AlertCircle className="w-10 h-10 text-rose-500" />
+             <p className="text-sm font-semibold text-slate-200">Lỗi phát video</p>
+             <p className="text-xs text-rose-300/80 max-w-xs">{videoError}</p>
           </div>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-600 flex-col gap-3">
-             <AlertCircle className="w-10 h-10" />
-             <p className="text-sm font-medium">No video source found.</p>
+          <div className="w-full h-full flex items-center justify-center text-slate-600 flex-col gap-3 p-6 text-center">
+             <AlertCircle className="w-10 h-10 text-slate-700" />
+             <p className="text-sm font-semibold text-slate-400">Chưa có video nguồn</p>
+             <p className="text-xs text-slate-600 max-w-xs">
+               Dán đường link TikTok / YouTube Shorts hoặc tải file MP4 từ máy tính ở cột bên trái để bắt đầu.
+             </p>
           </div>
         )}
       </div>
@@ -335,18 +347,28 @@ export function MiddleColumn({
          <button
             onClick={executeCut}
             disabled={!sourceVideoUrl || clipRanges.length === 0 || isProcessingCut}
-            className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 rounded-lg text-sm font-bold shadow-lg shadow-indigo-900/20 transition-all disabled:opacity-50 disabled:from-slate-700 disabled:to-slate-800 disabled:text-slate-400 flex items-center justify-center gap-2"
+            className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 rounded-lg text-sm font-bold shadow-lg shadow-indigo-900/20 transition-all disabled:opacity-50 disabled:from-slate-700 disabled:to-slate-800 disabled:text-slate-400 flex items-center justify-center gap-2 cursor-pointer text-white"
          >
             {isProcessingCut ? (
                 <>
                   <Loader2 className="animate-spin h-4 w-4" />
-                  PROCESSING ON SERVER...
+                  <span>{cutStatus || 'ĐANG CẮT VIDEO TRÊN SERVER...'}</span>
                 </>
             ) : (
-                'Execute Server Cut (Fast)'
+                `Cắt ${clipRanges.length > 0 ? `${clipRanges.length} Đoạn Clips` : ''} Bằng FFmpeg (Siêu Tốc)`
             )}
          </button>
-         <p ref={messageRef} className="text-[10px] text-slate-500 text-center mt-2 font-mono truncate h-3 uppercase"></p>
+
+         {cutError && (
+           <div className="mt-2.5 p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs text-center font-medium">
+             {cutError}
+           </div>
+         )}
+         {cutStatus && !isProcessingCut && !cutError && (
+           <div className="mt-2.5 p-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs text-center font-mono">
+             {cutStatus}
+           </div>
+         )}
       </div>
     </div>
   );

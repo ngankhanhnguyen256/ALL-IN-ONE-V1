@@ -10,6 +10,7 @@ import { cn } from './lib/utils';
 export default function App() {
   const [sourceVideoUrl, setSourceVideoUrl] = useState<string | null>(null);
   const [directVideoUrl, setDirectVideoUrl] = useState<string | null>(null);
+  const [localVideoFile, setLocalVideoFile] = useState<File | null>(null);
   const [clips, setClips] = useState<VideoClip[]>([]);
   const [clipRanges, setClipRanges] = useState<ClipRange[]>([]);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResult | null>(null);
@@ -111,60 +112,72 @@ export default function App() {
     localStorage.setItem('flux_panel_right_width', '340');
   };
 
-  // System State
-  const [workerStatus, setWorkerStatus] = useState<string>('Sáºµn sÃ ng táº£i video');
-  const [isWorkerReady, setIsWorkerReady] = useState<boolean>(true);
+  // Video Loading & Extraction State
+  const [statusMessage, setStatusMessage] = useState<string>('Sẵn sàng');
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const lastRequestedUrlRef = useRef<string>('');
 
   const handleDownloadSource = async (url: string) => {
     lastRequestedUrlRef.current = url;
+    setLocalVideoFile(null);
     setIsExtracting(true);
-    setWorkerStatus('Äang gá»­i yÃªu cáº§u táº£i video Ä‘áº¿n Server (Bypass CORS)...');
+    setStatusMessage('Đang phân tích và bóc tách link video...');
     
     try {
-        // First get the direct URL so we can store it for cutting later
-        const urlRes = await fetch('/api/get-tiktok-url', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url })
-        });
-        if (urlRes.ok) {
-            const urlData = await urlRes.json();
-            if (urlData.directUrl) {
-                setDirectVideoUrl(urlData.directUrl);
-            }
-        }
+      // Step 1: Request video extraction from multi-engine backend
+      const extractRes = await fetch('/api/extract-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
 
-        const res = await fetch('/api/download-tiktok', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url })
-        });
-        
-        if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || `Server lá»—i ${res.status}`);
-        }
-        
-        setWorkerStatus('Äang náº¡p luá»“ng video vÃ o bá»™ nhá»›...');
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        setSourceVideoUrl(blobUrl);
-        setWorkerStatus('Táº£i video thÃ nh cÃ´ng! Server FFmpeg Ä‘Ã£ sáºµn sÃ ng cáº¯t.');
+      if (!extractRes.ok) {
+        const errData = await extractRes.json().catch(() => ({}));
+        throw new Error(errData.error || `Lỗi bóc tách link (HTTP ${extractRes.status})`);
+      }
+
+      const info = await extractRes.json();
+      if (!info.directUrl) {
+        throw new Error('Không tìm thấy luồng video trực tiếp.');
+      }
+
+      setDirectVideoUrl(info.directUrl);
+      
+      // Step 2: Stream video directly with Range headers via proxy
+      const streamUrl = `/api/video-proxy?url=${encodeURIComponent(info.directUrl)}`;
+      setSourceVideoUrl(streamUrl);
+      setStatusMessage('Tải video thành công! Video đã sẵn sàng phát & cắt.');
     } catch (err: any) {
-        console.error("Lá»—i táº£i video:", err);
-        setWorkerStatus(`Lá»—i: ${err.message}`);
-        alert(`KhÃ´ng thá»ƒ táº£i video: ${err.message}`);
+      console.error("Lỗi tải video:", err);
+      setStatusMessage(`Lỗi: ${err.message}`);
     } finally {
-        setIsExtracting(false);
+      setIsExtracting(false);
+    }
+  };
+
+  const handleUploadLocalVideo = async (file: File) => {
+    try {
+      setIsExtracting(true);
+      setStatusMessage('Đang nạp video từ máy tính...');
+
+      setLocalVideoFile(file);
+      const localUrl = URL.createObjectURL(file);
+      setSourceVideoUrl(localUrl);
+      setDirectVideoUrl(null);
+
+      setStatusMessage('Video đã nạp thành công! Sẵn sàng cắt & phân tích.');
+    } catch (err: any) {
+      console.error("Lỗi nạp file video:", err);
+      setStatusMessage(`Lỗi tải file: ${err.message}`);
+    } finally {
+      setIsExtracting(false);
     }
   };
 
   const handleAnalyzeAI = async () => {
     if (!sourceVideoUrl) return;
     setIsProcessingAI(true);
-    setAiProcessingMessage('TrÃ­ch xuáº¥t Audio (Web API)...');
+    setAiProcessingMessage('Trích xuất Audio (Web API)...');
     try {
       const responseAudio = await fetch(sourceVideoUrl);
       const arrayBuffer = await responseAudio.arrayBuffer();
@@ -221,14 +234,14 @@ export default function App() {
       };
 
       const base64Data = bufferToBase64(wavBuffer);
-      setAiProcessingMessage('Äang phÃ¢n tÃ­ch (Há»‡ thá»‘ng AI Router Äang Auto Fallback)...');
+      setAiProcessingMessage('Đang phân tích (Hệ thống AI Router Đang Auto Fallback)...');
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
            mimeType: 'audio/wav',
            data: base64Data,
-           prompt: "PhÃ¢n tÃ­ch Ã¢m thanh, tráº£ vá» ÄÃšNG Äá»ŠNH Dáº NG JSON, KHÃ”NG CÃ“ MARKDOWN (khÃ´ng dÃ¹ng ```json). Báº¯t buá»™c chá»©a 2 trÆ°á»ng:\\n- 'transcript': máº£ng cÃ¡c Ä‘á»‘i tÆ°á»£ng gá»“m 'time' (Ä‘á»‹nh dáº¡ng 'MM:SS'), 'seconds' (sá»‘ giÃ¢y, VD: 0, 10, 20), vÃ  'text' (ná»™i dung).\\nYÃŠU Cáº¦U: Viáº¿t láº¡i TOÃ€N Bá»˜ thoáº¡i cá»§a video chuáº©n xÃ¡c nháº¥t Ä‘áº§y Ä‘á»§ 100%. PhÃ¢n chia thoáº¡i thÃ nh Tá»ªNG ÄOáº N DÃ€I KHOáº¢NG 10 GIÃ‚Y (00:00, 00:10, 00:20...). á»ž má»—i Ä‘oáº¡n thÃªm dáº¥u cÃ¢u ngáº¯t nghá»‰ tá»± nhiÃªn nháº¥t, Ä‘Ãºng ngá»¯ phÃ¡p. KHÃ”NG ÄÆ¯á»¢C TÃ“M Táº®T.\\n- 'summary': tÃ³m táº¯t chung." 
+           prompt: "Phân tích âm thanh, trả về ĐÚNG ĐỊNH DẠNG JSON, KHÔNG CÓ MARKDOWN (không dùng ```json). Bắt buộc chứa 2 trường:\\n- 'transcript': mảng các đối tượng gồm 'time' (định dạng 'MM:SS'), 'seconds' (số giây, VD: 0, 10, 20), và 'text' (nội dung).\\nYÊU CẦU: Viết lại TOÀN BỘ thoại của video chuẩn xác nhất đầy đủ 100%. Phân chia thoại thành TỪNG ĐOẠN DÀI KHOẢNG 10 GIÂY (00:00, 00:10, 00:20...). Ở mỗi đoạn thêm dấu câu ngắt nghỉ tự nhiên nhất, đúng ngữ pháp. KHÔNG ĐƯỢC TÓM TẮT.\\n- 'summary': tóm tắt chung." 
         })
       });
       
@@ -240,7 +253,7 @@ export default function App() {
       setAiAnalysis(resultData);
     } catch (error) {
       console.error("AI Analysis error:", error);
-      alert("CÃ³ lá»—i khi phÃ¢n tÃ­ch Audio hoáº·c gá»i Gemini API.");
+      alert("Có lỗi khi phân tích Audio hoặc gọi Gemini API.");
     } finally {
       setIsProcessingAI(false);
     }
@@ -291,10 +304,10 @@ export default function App() {
           <button
             onClick={handleResetLayout}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-colors text-xs cursor-pointer shadow-sm"
-            title="Äáº·t láº¡i kÃ­ch thÆ°á»›c cÃ¡c cá»™t vá» máº·c Ä‘á»‹nh (25% / 45% / 30%)"
+            title="Đặt lại kích thước các cột về mặc định (25% / 45% / 30%)"
           >
             <RotateCcw className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Reset Cá»™t</span>
+            <span>Reset Cột</span>
           </button>
 
           <div className="h-4 w-[1px] bg-white/10" />
@@ -323,13 +336,13 @@ export default function App() {
           <div 
             onClick={() => setIsLeftCollapsed(false)}
             className="w-11 shrink-0 bg-[#0F1219] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer hover:bg-white/5 transition-colors group select-none"
-            title="Nháº¥p Ä‘á»ƒ má»Ÿ rá»™ng cá»™t Nguá»“n Video & Clips"
+            title="Nhấp để mở rộng cột Nguồn Video & Clips"
           >
             <button className="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors mb-4">
               <ChevronRight className="w-4 h-4" />
             </button>
             <div className="writing-vertical text-[11px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-indigo-300 rotate-180 flex items-center gap-2">
-              <span>Nguá»“n & Clips</span>
+              <span>Nguồn & Clips</span>
               {clips.length > 0 && (
                 <span className="bg-indigo-500 text-white rounded-full px-1.5 py-0.2 text-[9px] font-mono">
                   {clips.length}
@@ -345,10 +358,10 @@ export default function App() {
             <LeftColumn 
                sourceVideoUrl={sourceVideoUrl}
                onDownloadSource={handleDownloadSource}
+               onUploadLocalVideo={handleUploadLocalVideo}
                clips={clips}
                onDeleteClip={handleDeleteClip}
-               workerStatus={workerStatus}
-               isWorkerReady={isWorkerReady}
+               statusMessage={statusMessage}
                isExtracting={isExtracting}
             />
           </div>
@@ -366,7 +379,7 @@ export default function App() {
           isCollapsed={isLeftCollapsed}
           onToggleCollapse={() => setIsLeftCollapsed(!isLeftCollapsed)}
           collapseDirection="left"
-          panelName="Cá»™t Nguá»“n Video"
+          panelName="Cột Nguồn Video"
           currentWidth={isLeftCollapsed ? 42 : leftWidth}
         />
 
@@ -375,11 +388,13 @@ export default function App() {
           <MiddleColumn 
              sourceVideoUrl={sourceVideoUrl}
              directVideoUrl={directVideoUrl}
+             localFile={localVideoFile}
              videoRef={videoRef}
              clipRanges={clipRanges}
              setClipRanges={setClipRanges}
              onCutComplete={handleCutComplete}
              isExtracting={isExtracting}
+             statusMessage={statusMessage}
           />
         </div>
 
@@ -395,7 +410,7 @@ export default function App() {
           isCollapsed={isRightCollapsed}
           onToggleCollapse={() => setIsRightCollapsed(!isRightCollapsed)}
           collapseDirection="right"
-          panelName="Cá»™t Transcript / AI"
+          panelName="Cột Transcript / AI"
           currentWidth={isRightCollapsed ? 42 : rightWidth}
         />
 
@@ -404,7 +419,7 @@ export default function App() {
           <div 
             onClick={() => setIsRightCollapsed(false)}
             className="w-11 shrink-0 bg-[#0F1219] border-l border-white/10 flex flex-col items-center py-4 cursor-pointer hover:bg-white/5 transition-colors group select-none"
-            title="Nháº¥p Ä‘á»ƒ má»Ÿ rá»™ng cá»™t Transcript & AI Summary"
+            title="Nhấp để mở rộng cột Transcript & AI Summary"
           >
             <button className="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors mb-4">
               <ChevronLeft className="w-4 h-4" />
@@ -439,10 +454,10 @@ export default function App() {
         <div className="flex items-center gap-3">
           <span>ENV: PRODUCTION_READY</span>
           <span className="text-slate-700">|</span>
-          <span className="text-indigo-400/80">KÃ©o cÃ¡c thanh giá»¯a cÃ¡c cá»™t Ä‘á»ƒ tÃ¹y chá»‰nh chiá»u rá»™ng</span>
+          <span className="text-indigo-400/80">Kéo các thanh giữa các cột để tùy chỉnh chiều rộng</span>
         </div>
         <div className="flex items-center gap-3">
-          <span>KÃCH THÆ¯á»šC: [{isLeftCollapsed ? 'Thu gá»n' : `${leftWidth}px`} | Tá»± Ä‘á»™ng | {isRightCollapsed ? 'Thu gá»n' : `${rightWidth}px`}]</span>
+          <span>KÍCH THƯỚC: [{isLeftCollapsed ? 'Thu gọn' : `${leftWidth}px`} | Tự động | {isRightCollapsed ? 'Thu gọn' : `${rightWidth}px`}]</span>
           <span className="text-slate-700">|</span>
           <div>&copy; 2024 FLUX STUDIO v1.0.5</div>
         </div>
@@ -450,5 +465,4 @@ export default function App() {
     </div>
   );
 }
-
 
