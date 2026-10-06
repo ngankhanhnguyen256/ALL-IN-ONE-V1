@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import multer from "multer";
 import { exec } from "child_process";
@@ -802,12 +801,14 @@ Hãy viết lại một kịch bản thoại mới sáng tạo, cuốn hút và 
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production" && process.env.VERCEL !== "1") {
-    createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    }).then(vite => {
-        app.use(vite.middlewares);
-        app.listen(3000, "0.0.0.0", () => console.log("Server running on http://localhost:3000"));
+        import('vite').then(({ createServer: createViteServer }) => {
+      createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      }).then(vite => {
+          app.use(vite.middlewares);
+          app.listen(3000, "0.0.0.0", () => console.log("Server running on http://localhost:3000"));
+      });
     });
   } else if (process.env.VERCEL !== "1") {
     const distPath = path.join(process.cwd(), "dist");
@@ -819,3 +820,4 @@ Hãy viết lại một kịch bản thoại mới sáng tạo, cuốn hút và 
   }
 
 export default app;
+
