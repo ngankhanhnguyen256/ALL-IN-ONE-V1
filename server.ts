@@ -24,7 +24,7 @@ const app = express();
 
 app.use(express.json({ limit: "50mb" }));
 
-// 1. Cắt video từ URL
+// 1. Cáº¯t video tá»« URL
 app.post("/api/cut-video-url", async (req, res) => {
   try {
       const { videoUrl, startTime, endTime } = req.body;
@@ -60,7 +60,7 @@ app.post("/api/cut-video-url", async (req, res) => {
   }
 });
 
-// 2. Cắt video từ file
+// 2. Cáº¯t video tá»« file
 app.post("/api/cut-video", upload.single('video'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Missing video file" });
 
@@ -97,7 +97,7 @@ app.post("/api/cut-video", upload.single('video'), (req, res) => {
       .run();
 });
 
-// 3. Phân tích AI
+// 3. PhÃ¢n tÃ­ch AI
 app.post("/api/analyze", async (req, res) => {
   try {
     const aiClient = getAI();
@@ -156,7 +156,7 @@ app.post("/api/analyze-stream", async (req, res) => {
       model: "gemini-2.5-flash",
       contents: [
         { inlineData: { mimeType: mimeType || "audio/wav", data: data } },
-        { text: prompt || "Phân tích video này..." }
+        { text: prompt || "PhÃ¢n tÃ­ch video nÃ y..." }
       ]
     });
 
